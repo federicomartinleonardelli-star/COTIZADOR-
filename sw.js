@@ -1,10 +1,9 @@
 // Service Worker — Cotizador Premium Volkswagen Iruña
-// Cache-first para los archivos del "app shell", con actualización en segundo plano.
+// Network-first para el documento principal (para que las actualizaciones se vean
+// enseguida), cache-first para el resto de los archivos estáticos (íconos, manifest).
 
-const CACHE_VERSION = "iruna-cotizador-v1";
+const CACHE_VERSION = "iruna-cotizador-v2"; // <- subí este número cada vez que quieras forzar una limpieza de caché
 const APP_SHELL = [
-  "./",
-  "./index.html",
   "./manifest.webmanifest",
   "./apple-touch-icon-180.png",
   "./icon-192.png",
@@ -34,9 +33,28 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // Solo interceptamos GET del mismo origen; todo lo demás va directo a la red.
   if (event.request.method !== "GET") return;
 
+  const isNavigation =
+    event.request.mode === "navigate" ||
+    (event.request.headers.get("accept") || "").includes("text/html");
+
+  if (isNavigation) {
+    // Documento principal: SIEMPRE preferí la red. Si no hay internet, usá el caché.
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Todo lo demás (íconos, manifest, PDFs de fichas técnicas): cache-first,
+  // actualizando el caché en segundo plano.
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const network = fetch(event.request)
